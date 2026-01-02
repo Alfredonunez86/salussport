@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salus Sport - Sistema de Reservas</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/umd/lucide.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+
+<script type="text/babel">
+    const { Calendar, Clock, Users, User, Shield, Trash2, Plus, CheckCircle, XCircle, AlertCircle } = lucide;
+
+    const SalusSportApp = () => {
+        const [isAdmin, setIsAdmin] = React.useState(false);
+        const [adminPassword, setAdminPassword] = React.useState('');
+        const [showAdminLogin, setShowAdminLogin] = React.useState(false);
+
+        const [clientes, setClientes] = React.useState(() => {
+            const saved = localStorage.getItem('salusClientes');
+            return saved ? JSON.parse(saved) : [];
+        });
+
+        const [horarios] = React.useState(() => {
+            const hrs = [];
+            for (let h = 7; h <= 21; h++) {
+                hrs.push(`${h.toString().padStart(2, '0')}:00`);
+            }
+            return hrs;
+        });
+
+        const [reservas, setReservas] = React.useState(() => {
+            const saved = localStorage.getItem('salusReservas');
+            return saved ? JSON.parse(saved) : [];
+        });
+
+        const [mensaje, setMensaje] = React.useState({ tipo: '', texto: '' });
+        const [vistaActual, setVistaActual] = React.useState('calendario');
+        const [clienteSeleccionado, setClienteSeleccionado] = React.useState(null);
+
+        React.useEffect(() => {
+            localStorage.setItem('salusClientes', JSON.stringify(clientes));
+        }, [clientes]);
+
+        React.useEffect(() => {
+            localStorage.setItem('salusReservas', JSON.stringify(reservas));
+        }, [reservas]);
+
+        React.useEffect(() => {
+            const verificarPagos = () => {
+                const hoy = new Date();
+                if (hoy.getDate() === 15) {
+                    const clientesActivos = clientes.filter(c => {
+                        if (!c.ultimoPago) return false;
+                        const fechaPago = new Date(c.ultimoPago);
+                        return fechaPago.getMonth() === hoy.getMonth() && fechaPago.getFullYear() === hoy.getFullYear();
+                    });
+                    if (clientesActivos.length !== clientes.length) {
+                        setClientes(clientesActivos);
+                        mostrarMensaje('info', 'Se han eliminado clientes sin pago del mes actual');
+                    }
+                }
+            };
+            verificarPagos();
+        }, [clientes]);
+
+        const mostrarMensaje = (tipo, texto) => {
+            setMensaje({ tipo, texto });
+            setTimeout(() => setMensaje({ tipo: '', texto: '' }), 4000);
+        };
+
+        const loginAdmin = () => {
+            if (adminPassword === 'salussport2026') {
+                setIsAdmin(true);
+                setShowAdminLogin(false);
+                mostrarMensaje('success', '✅ Acceso de administrador concedido');
+            } else {
+                mostrarMensaje('error', '❌ Contraseña incorrecta');
+            }
+        };
+
+        const obtenerCapacidadHora = (dia, hora) => {
+            const reservasHora = reservas.filter(r => r.dia === dia && r.hora === hora);
+            
+            let espacio1 = { tipo: null, ocupacion: 0 };
+            let espacio2 = { tipo: null, ocupacion: 0 };
+            
+            reservasHora.forEach(r => {
+                if (r.espacio === 1) {
+                    if (!espacio1.tipo) {
+                        espacio1 = { tipo: r.tipo, ocupacion: 1 };
+                    } else if (espacio1.tipo === r.tipo && r.tipo === 'grupo') {
+                        espacio1.ocupacion += 1;
+                    }
+                } else {
+                    if (!espacio2.tipo) {
+                        espacio2 = { tipo: r.tipo, ocupacion: 1 };
+                    } else if (espacio2.tipo === r.tipo && r.tipo === 'grupo') {
+                        espacio2.ocupacion += 1;
+                    }
+                }
+            });
+
+            return { espacio1, espacio2, reservasHora };
+        };
+
+        const puedeReservar = (dia, hora, tipo) => {
+            const { espacio1, espacio2 } = obtenerCapacidadHora(dia, hora);
+            
+            if (tipo === 'grupo') {
+                if (!espacio1.tipo) return { puede: true, espacio: 1 };
+                if (!espacio2.tipo) return { puede: true, espacio: 2 };
+                if (espacio1.tipo === 'grupo' && espacio1.ocupacion < 6) return { puede: true, espacio: 1 };
+                if (espacio2.tipo === 'grupo' && espacio2.ocupacion < 6) return { puede: true, espacio: 2 };
+            }
+            
+            if (tipo === 'trio') {
+                if (!espacio1.tipo) return { puede: true, espacio: 1 };
+                if (!espacio2.tipo) return { puede: true, espacio: 2 };
+                if (espacio1.tipo === 'grupo' && !espacio2.tipo) return { puede: true, espacio: 2 };
+                if (espacio2.tipo === 'grupo' && !espacio1.tipo) return { puede: true, espacio: 1 };
+            }
+            
+            if (tipo === 'onetoone') {
+                if (!espacio1.tipo) return { puede: true, espacio: 1 };
+                if (!espacio2.tipo) return { puede: true, espacio: 2 };
+                if (espacio1.tipo === 'onetoone' && !espacio2.tipo) return { puede: true, espacio: 2 };
+                if (espacio2.tipo === 'onetoone' && !espacio1.tipo) return { puede: true, espacio: 1 };
+                if (espacio1.tipo === 'grupo' && !espacio2.tipo) return { puede: true, espacio: 2 };
+                if (espacio2.tipo === 'grupo' && !espacio1.tipo) return { puede: true, espacio: 1 };
+            }
+            
+            return { puede: false, espacio: null };
+        };
+
+        const solicitarRecuperacion = (cliente, nuevoDia, nuevaHora) => {
+            const reservaOriginal = reservas.find(r => r.clienteId === cliente.id && r.esRecuperacion === false);
+            
+            if (!reservaOriginal) {
+                mostrarMensaje('error', 'No se encontró la reserva original');
+                return;
+            }
+
+            if (reservaOriginal.recuperacionUsada) {
+                mostrarMensaje('error', 'Ya has usado tu recuperación para esta clase');
+                return;
+            }
+
+            const { puede, espacio } = puedeReservar(nuevoDia, nuevaHora, reservaOriginal.tipo);
+            
+            if (!puede) {
+                mostrarMensaje('error', 'No hay espacio disponible en ese horario');
+                return;
+            }
+
+            setReservas(reservas.map(r => 
+                r.id === reservaOriginal.id 
+                    ? { ...r, recuperacionUsada: true }
+                    : r
+            ));
+
+            const nuevaReserva = {
+                id: Date.now(),
+                clienteId: cliente.id,
+                clienteNombre: cliente.nombre,
+                dia: nuevoDia,
+                hora: nuevaHora,
+                tipo: reservaOriginal.tipo,
+                espacio: espacio,
+                esRecuperacion: true,
+                recuperacionUsada: true
+            };
+
+            setReservas([...reservas, nuevaReserva]);
+            mostrarMensaje('success', `✅ Recuperación reservada para ${nuevoDia} a las ${nuevaHora}`);
+            setClienteSeleccionado(null);
+            setVistaActual('calendario');
+        };
+
+        const VistaAdmin = () => {
+            const [nuevoCliente, setNuevoCliente] = React.useState({
+                nombre: '',
+                email: '',
+                tipo: 'grupo',
+                dia: 'Lunes',
+                hora: '09:00'
+            });
+
+            const agregarCliente = () => {
+                if (!nuevoCliente.nombre || !nuevoCliente.email) {
+                    mostrarMensaje('error', 'Complete todos los campos');
+                    return;
+                }
+
+                const { puede, espacio } = puedeReservar(nuevoCliente.dia, nuevoCliente.hora, nuevoCliente.tipo);
+                
+                if (!puede) {
+                    mostrarMensaje('error', 'No hay espacio disponible en ese horario');
+                    return;
+                }
+
+                const cliente = {
+                    id: Date.now(),
+                    nombre: nuevoCliente.nombre,
+                    email: nuevoCliente.email,
+                    ultimoPago: new Date().toISOString()
+                };
+
+                const reserva = {
+                    id: Date.now() + 1,
+                    clienteId: cliente.id,
+                    clienteNombre: cliente.nombre,
+                    dia: nuevoCliente.dia,
+                    hora: nuevoCliente.hora,
+                    tipo: nuevoCliente.tipo,
+                    espacio: espacio,
+                    esRecuperacion: false,
+                    recuperacionUsada: false
+                };
+
+                setClientes([...clientes, cliente]);
+                setReservas([...reservas, reserva]);
+                
+                setNuevoCliente({ nombre: '', email: '', tipo: 'grupo', dia: 'Lunes', hora: '09:00' });
+                mostrarMensaje('success', '✅ Cliente agregado exitosamente');
+            };
+
+            const eliminarCliente = (clienteId) => {
+                if (window.confirm('¿Seguro que deseas eliminar este cliente y todas sus reservas?')) {
+                    setClientes(clientes.filter(c => c.id !== clienteId));
+                    setReservas(reservas.filter(r => r.clienteId !== clienteId));
+                    mostrarMensaje('success', '✅ Cliente eliminado');
+                }
+            };
+
+            const marcarPago = (clienteId) => {
+                setClientes(clientes.map(c => 
+                    c.id === clienteId ? { ...c, ultimoPago: new Date().toISOString() } : c
+                ));
+                mostrarMensaje('success', '✅ Pago registrado');
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                            <Shield className="text-blue-600" size={28} />
+                            Panel de Administrador
+                        </h2>
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+                            <h3 className="font-bold text-lg mb-4">Agregar Nuevo Cliente</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input
+                                    type="text"
+                                    placeholder="Nombre completo"
+                                    value={nuevoCliente.nombre}
+                                    onChange={(e) => setNuevoCliente({...nuevoCliente, nombre: e.target.value})}
+                                    className="border rounded-lg px-4 py-2"
+                                />
+                                <input
+                                    type="email"
+                                    placeholder="Email"
+                                    value={nuevoCliente.email}
+                                    onChange={(e) => setNuevoCliente({...nuevoCliente, email: e.target.value})}
+                                    className="border rounded-lg px-4 py-2"
+                                />
+                                <select
+                                    value={nuevoCliente.tipo}
+                                    onChange={(e) => setNuevoCliente({...nuevoCliente, tipo: e.target.value})}
+                                    className="border rounded-lg px-4 py-2"
+                                >
+                                    <option value="grupo">Grupo (máx 6)</option>
+                                    <option value="trio">Trío (3 personas)</option>
+                                    <option value="onetoone">One to One</option>
+                                </select>
+                                <select
+                                    value={nuevoCliente.dia}
+                                    onChange={(e) => setNuevoCliente({...nuevoCliente, dia: e.target.value})}
+                                    className="border rounded-lg px-4 py-2"
+                                >
+                                    <option>Lunes</option>
+                                    <option>Martes</option>
+                                    <option>Miércoles</option>
+                                    <option>Jueves</option>
+                                    <option>Viernes</option>
+                                    <option>Sábado</option>
+                                </select>
+                                <select
+                                    value={nuevoCliente.hora}
+                                    onChange={(e) => setNuevoCliente({...nuevoCliente, hora: e.target.value})}
+                                    className="border rounded-lg px-4 py-2"
+                                >
+                                    {horarios.map(h => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                                <button
+                                    onClick={agregarCliente}
+                                    className="bg-blue-600 text-white rounded-lg px-6 py-2 font-medium hover:bg-blue-700 flex items-center justify-center gap-2"
+                                >
+                                    <Plus size={20} />
+                                    Agregar Cliente
+                                </button>
+                            </div>
+                        </div>
+
+                        <h3 className="font-bold text-lg mb-4">Clientes Activos ({clientes.length})</h3>
+                        <div className="space-y-3">
+                            {clientes.map(cliente => {
+                                const reservaCliente = reservas.find(r => r.clienteId === cliente.id && !r.esRecuperacion);
+                                const pagado = cliente.ultimoPago && new Date(cliente.ultimoPago).getMonth() === new Date().getMonth();
+                                
+                                return (
+                                    <div key={cliente.id} className="border rounded-lg p-4 flex items-center justify-between flex-wrap gap-3">
+                                        <div className="flex-1 min-w-[200px]">
+                                            <h4 className="font-bold">{cliente.nombre}</h4>
+                                            <p className="text-sm text-gray-600">{cliente.email}</p>
+                                            {reservaCliente && (
+                                                <p className="text-sm text-blue-600 font-medium mt-1">
+                                                    {reservaCliente.tipo.toUpperCase()} - {reservaCliente.dia} {reservaCliente.hora}
+                                                </p>
+                                            )}
+                                            <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${pagado ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                {pagado ? '✓ Pagado este mes' : '✗ Sin pago'}
+                                            </span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {!pagado && (
+                                                <button
+                                                    onClick={() => marcarPago(cliente.id)}
+                                                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700"
+                                                >
+                                                    Marcar Pago
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => eliminarCliente(cliente.id)}
+                                                className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const VistaCalendario = () => {
+            const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-6 overflow-x-auto">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-6">Calendario Semanal</h2>
+                    
+                    <table className="w-full border-collapse min-w-[800px]">
+                        <thead>
+                            <tr>
+                                <th className="border border-gray-300 bg-gray-100 p-3 text-left font-semibold sticky left-0 z-10 bg-gray-100">Hora</th>
+                                {dias.map(dia => (
+                                    <th key={dia} className="border border-gray-300 bg-gray-100 p-3 text-center font-semibold">{dia}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {horarios.map(hora => (
+                                <tr key={hora}>
+                                    <td className="border border-gray-300 bg-gray-50 p-3 font-medium sticky left-0 z-10 bg-gray-50">{hora}</td>
+                                    {dias.map(dia => {
+                                        const { espacio1, espacio2 } = obtenerCapacidadHora(dia, hora);
+                                        
+                                        return (
+                                            <td key={`${dia}-${hora}`} className="border border-gray-300 p-2 align-top">
+                                                <div className="space-y-1">
+                                                    {espacio1.tipo && (
+                                                        <div className={`p-2 rounded text-xs ${
+                                                            espacio1.tipo === 'grupo' ? 'bg-blue-100 border border-blue-300' :
+                                                            espacio1.tipo === 'trio' ? 'bg-purple-100 border border-purple-300' :
+                                                            'bg-green-100 border border-green-300'
+                                                        }`}>
+                                                            <div className="font-semibold">{espacio1.tipo.toUpperCase()}</div>
+                                                            <div>{espacio1.ocupacion}{espacio1.tipo === 'grupo' ? '/6' : ''}</div>
+                                                        </div>
+                                                    )}
+                                                    {espacio2.tipo && (
+                                                        <div className={`p-2 rounded text-xs ${
+                                                            espacio2.tipo === 'grupo' ? 'bg-blue-100 border border-blue-300' :
+                                                            espacio2.tipo === 'trio' ? 'bg-purple-100 border border-purple-300' :
+                                                            'bg-green-100 border border-green-300'
+                                                        }`}>
+                                                            <div className="font-semibold">{espacio2.tipo.toUpperCase()}</div>
+                                                            <div>{espacio2.ocupacion}{espacio2.tipo === 'grupo' ? '/6' : ''}</div>
+                                                        </div>
+                                                    )}
+                                                    {!espacio1.tipo && !espacio2.tipo && (
+                                                        <div className="text-center text-gray-400 text-xs py-2">Disponible</div>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    <div className="mt-6 flex flex-wrap gap-4">
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-blue-100 border border-blue-300 rounded"></div>
+                            <span className="text-sm">Grupo (máx 6)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-purple-100 border border-purple-300 rounded"></div>
+                            <span className="text-sm">Trío (3 personas)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-green-100 border border-green-300 rounded"></div>
+                            <span className="text-sm">One to One</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const VistaRecuperaciones = () => {
+            const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            
+            if (!clienteSeleccionado) {
+                return (
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Solicitar Recuperación</h2>
+                        {clientes.length === 0 ? (
+                            <p className="text-gray-500 text-center py-8">No hay clientes registrados aún</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {clientes.map(cliente => {
+                                    const reservaOriginal = reservas.find(r => r.clienteId === cliente.id && !r.esRecuperacion);
+                                    const puedeRecuperar = reservaOriginal && !reservaOriginal.recuperacionUsada;
+                                    
+                                    return (
+                                        <div key={cliente.id} className="border rounded-lg p-4 flex items-center justify-between flex-wrap gap-3">
+                                            <div className="flex-1 min-w-[200px]">
+                                                <h3 className="font-bold">{cliente.nombre}</h3>
+                                                {reservaOriginal && (
+                                                    <p className="text-sm text-gray-600 mt-1">
+                                                        Clase fija: {reservaOriginal.dia} {reservaOriginal.hora} ({reservaOriginal.tipo})
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <button
+                                                onClick={() => setClienteSeleccionado(cliente)}
+                                                disabled={!puedeRecuperar}
+                                                className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                                                    puedeRecuperar
+                                                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                {puedeRecuperar ? 'Solicitar' : 'Ya usado'}
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-2xl font-bold text-gray-800">Recuperación - {clienteSeleccionado.nombre}</h2>
+                        <button
+                            onClick={() => setClienteSeleccionado(null)}
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                        >
+                            <XCircle size={24} />
+                        </button>
+                    </div>
+
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                        <AlertCircle className="inline mr-2 text-yellow-600" size={20} />
+                        <span className="text-sm text-yellow-800">Solo puedes recuperar una vez. Las recuperaciones no se pueden mover.</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                        {dias.map(dia => (
+                            <div key={dia}>
+                                <h3 className="font-bold mb-2 text-sm">{dia}</h3>
+                                <div className="space-y-2">
+                                    {horarios.map(hora => {
+                                        const reservaOriginal = reservas.find(r => r.clienteId === clienteSeleccionado.id && !r.esRecuperacion);
+                                        const { puede } = puedeReservar(dia, hora, reservaOriginal?.tipo);
+                                        
+                                        return (
+                                            <button
+                                                key={hora}
+                                                onClick={() => solicitarRecuperacion(clienteSeleccionado, dia, hora)}
+                                                disabled={!puede}
+                                                className={`w-full text-left px-2 py-1 rounded text-xs ${
+                                                    puede
+                                                        ? 'bg-green-100 border border-green-300 hover:bg-green-200'
+                                                        : 'bg-gray-100 border border-gray-300 text-gray-400 cursor-not-allowed'
+                                                }`}
+                                            >
+                                                {hora}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        return (
+            <div className="min-h-screen bg-gray-100 p-4">
+                <div className="max-w-7xl mx-auto">
+                    <header className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg shadow-lg p-6 mb-6 text-white">
+                        <div className="flex items-center justify-between flex-wrap gap-3">
+                            <div>
+                                <h1 className="text-3xl font-bold">Salus Sport</h1>
+                                <p className="text-blue-100">Sistema de Reservas</p>
+                            </div>
+                            <button
+                                onClick={() => setShowAdminLogin(!showAdminLogin)}
+                                className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50 flex items-center gap-2"
+                            >
+                                <Shield size={20} />
+                                {isAdmin ? 'Admin' : 'Acceso Admin'}
+                            </button>
+                        </div>
+                    </header>
+
+                    {showAdminLogin && !isAdmin && (
+                        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                            <h3 className="font-bold mb-4">Acceso de Administrador</h3>
+                            <div className="flex gap-3 flex-wrap">
+                                <input
+                                    type="password"
+                                    placeholder="Contraseña"
+                                    value={adminPassword}
+                                    onChange={(e) => setAdminPassword(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && loginAdmin()}
+                                    className="flex-1 min-w-[200px] border rounded-lg px-4 py-2"
+                                />
+                                <button
+                                    onClick={loginAdmin}
+                                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+                                >
+                                    Entrar
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {mensaje.texto && (
+                        <div className={`mb-6 p-4 rounded-lg flex items-center ${
+                            mensaje.tipo === 'success' ? 'bg-green-100 text-green-800 border border-green-200' :
+                            mensaje.tipo === 'error' ? 'bg-red-100 text-red-800 border border-red-200' :
+                            'bg-blue-100 text-blue-800 border border-blue-200'
+                        }`}>
+                            {mensaje.tipo === 'success' ? <CheckCircle className="mr-3" size={20} /> : 
+                             mensaje.tipo === 'error' ? <XCircle className="mr-3" size={20} /> :
+                             <AlertCircle className="mr-3" size={20} />}
+                            <p className="font-medium">{mensaje.texto}</p>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2 mb-6 border-b border-gray-200">
+                        <button
+                            onClick={() => setVistaActual('calendario')}
+                            className={`px-4 py-3 font-medium text-sm ${vistaActual === 'calendario' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600'}`}
+                        >
